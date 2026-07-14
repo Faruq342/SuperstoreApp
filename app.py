@@ -5,7 +5,7 @@ import plotly.express as px # new
 
 @st.cache_data
 def load_data():
-    data = pd.read_excel("Super+store+Data.xlsx")
+    data = pd.read_excel("Super+Store+Data.xlsx")
     df = data.copy()
     df = df.rename(columns={
         "Row ID":"Row_ID", 
