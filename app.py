@@ -1,177 +1,88 @@
 import streamlit as st
-import pandas as pd
-import altair as alt # new
-import plotly.express as px # new
+import pandas as pd 
+import matplotlib.pyplot as plt
+import seaborn as sns
 
+st.set_page_config(page_title="Nigeria Incidents Dashboard", layout="wide")
+
+sns.set_style("whitegrid")
+
+# Load data
 @st.cache_data
 def load_data():
-    data = pd.read_excel("Super+Store+Data.xlsx")
-    df = data.copy()
-    df = df.rename(columns={
-        "Row ID":"Row_ID", 
-        "Order ID":"Order_ID",
-        "Order Date":"Order_Date",
-        "Ship Date":"Ship_Date",
-        "Customer Name":"Customer_Name",
-        "Sub-Category":"Sub_Category",
-        "Product Name":"Product_Name",
-        "Customer ID":"Customer_ID",
-        "Product ID":"Product_ID",
-        "Ship Mode":"Ship_Mode"
-    })
-    # add Year column
-    df["Year"] = df["Order_Date"].dt.year
-    df["Month"] = df["Order_Date"].dt.month_name
-    df["Quarter"] = df["Order_Date"].dt.quarter
-    df["Month_No"] = df["Order_Date"].dt.month
-    df["Year_Month"]= df["Order_Date"].dt.to_period("M").dt.to_timestamp()
-    df["Shipping_Days"] = (
-    df["Ship_Date"] - df["Order_Date"]
-        ).dt.days
-    df["Profit_Margin"] = (df["Profit"] / df["Sales"])
-    df["Loss"] = df["Profit"] < 0
+    df = pd.read_csv("incidents_updated.csv")
+    df["Start date"] = pd.to_datetime(df["Start date"],  errors="coerce")
+    df["End date"] = pd.to_datetime(df["End date"], errors="coerce")
     return df
 
+df = load_data()
 
-    # display to the browser
-try:
-    df = load_data()
-    st.title("Super Store Analysis")
-    st.dataframe(df)
-    # st.write(df.isnul().sum()) # check for null values
-    # st.write(df.dtypes)
-    filters = {
-        "Year":df["Year"].unique(),
-        "Month":df["Month"].unique(),
-        "Ship_Mode":df["Ship_Mode"].unique(),
-        "Segment":df["Segment"].unique(),
-        "State":df["State"].unique(),
-        "Country":df["Country"].unique(),
-        "Category":df["Category"].unique(),
-        "City":df["City"].unique()
-    }
-    # store user selection
-    selected_filters = {}
+st.title("Incidents, Accidents and Violence in Nigeria")
+st.markdown("An exploratory dashboard analyzing recorded incidents across Nigeria.")
 
-    # generate multi-select widgets dynamically
-    for key, options in filters.items():
-        selected_filters[key] = st.sidebar.multiselect(key , options)
+# Sidebar filters
+st.sidebar.header("Filters")
+states = st.sidebar.multiselect(
+    "Select State(S)",
+    options=sorted(df["State"].dropna().unique()),
+    default=None
+)
+categories = st.sidebar.multiselect(
+    "Select Incident Category",
+    options=sorted(df["Incident category"].dropna().unique()),
+    default=None
+)
 
-# selected data filtered
-    filtered_df = df.copy()
+filtered_df = df.copy()
+if states:
+    filtered_df = filtered_df[filtered_df["State"].isin(states)]
+if categories:
+    filtered_df = filtered_df[filtered_df["Incident category"].isin(categories)]
 
-# apply user selection to the data
-    for key, selected_values in selected_filters.items():
-         if selected_values:
-             filtered_df = filtered_df[filtered_df[key].isin(selected_values)]
+# key metrics
+col1, col2, col3 = st.columns(3)
+col1.metric("Total Incidents", f"{len(filtered_df):,}")
+col2.metric("Total Deaths", f"{int(filtered_df['Number of deaths'].sum()):,}")
+col3.metric("State Affected", filtered_df["State"].nunique())
 
-    # view Data
-    st.dataframe(filtered_df)
+st.divider()
 
-    #section 2: Calculations
-    total_sales = filtered_df["Sales"].sum()
-    total_profit = filtered_df["Profit"].sum()
-    no_orders = len(filtered_df)
-    no_customers = filtered_df["Customer_ID"].nunique()
+# Chart 1: Top states by deaths
+st.subheader("Top 10 States by Total Deaths")
+top_states = filtered_df.groupby("State")["Number of deaths"].sum().sort_values(ascending=False).head(10)
+fig1, ax1 = plt.subplots(figsize=(10, 5))
+sns.barplot(x=top_states.values, y=top_states.index, hue=top_states.index, palette="Reds_r", legend=False, ax=ax1)
+ax1.set_xlabel("Total Deaths")
+ax1.set_ylabel("State")
+st.pyplot(fig1)
 
-    col1, col2, col3, col4 = st.columns(4)
+# Chart 2: Deaths by category
+st.subheader("Total Deaths by Incident Category")
+cat_deaths = filtered_df.groupby("Incident category")["Number of deaths"].sum().sort_values(ascending=False)
+fig2, ax2 = plt.subplots(figsize=(10, 6))
+sns.barplot(x=cat_deaths.values, y=cat_deaths.index, hue=cat_deaths.index, palette="viridis", legend=False, ax=ax2)
+ax2.set_xlabel("Total Deaths")
+ax2.set_ylabel("Incident Category")
+st.pyplot(fig2)
 
-    with col1:
-        st.metric("Total Sales", f"${total_sales:,.2f}")
+# Chart 3: Trend over time
+st.subheader("Deaths by Year")
+yearly = filtered_df.groupby(filtered_df["Start date"].dt.year)["Number of deaths"].sum()
+fig3, ax3 = plt.subplots(figsize=(10, 5))
+sns.lineplot(x=yearly.index, y=yearly.values, marker="o", ax=ax3)
+ax3.set_xlabel("Year")
+ax3.set_ylabel("Total Deaths")
+st.pyplot(fig3)
 
-    with col2:
-        st.metric("Total Profit", f"${total_profit:,.2f}")
+# Chart 4: Severity by category
+st.subheader("Average Deaths per Incidents by Category (Severity)")
+avg_severity = filtered_df.groupby("Incident category")["Number of deaths"].mean().sort_values(ascending=False)
+fig4, ax4 = plt.subplots(figsize=(10, 6))
+sns.barplot(x=avg_severity.values, y=avg_severity.index, hue=avg_severity.index, palette="magma", legend=False, ax=ax4)
+ax4.set_xlabel("Average Deaths per Incident")
+ax4.set_ylabel("Incident Category")
+st.pyplot(fig4)
 
-    with col3:
-        st.metric("Orders", f"{no_orders}")
-
-    with col4:
-        st.metric("Customers", f"{no_customers}")
-
-# Charts
-    # Chart data
-    temp_df = (
-        filtered_df.groupby("Year", as_index=False)
-        .agg(Sales=("Sales","sum"), Profit = ("Profit","sum"))
-        .sort_values("Year")
-    )
-
-    st.header("Yearly Trend - Sales & Profit")
-
-    metric_choice = st.radio(
-        "Trend Metric",
-        ["Sales", "Profit"],
-        horizontal=True, key="trend_metric",
-    )   
-    trend = (
-        alt.Chart(temp_df)
-        .mark_line(point=True)
-        .encode(
-            x=alt.X("Year:O", title="Year"),
-            y=alt.Y(f"{metric_choice}:Q", title=metric_choice),
-            tooltip=[
-                alt.Tooltip("Year:O", title="Year"),
-                alt.Tooltip(f"{metric_choice}:Q",format="$,.2f")
-            ],
-        )
-        .properties(height=360)
-        .interactive()
-    ) 
-
-    st.altair_chart(trend,use_container_width=True)
-
-    # Chart 2
-
-    st.header("Locations")
-
-    geo_col, ship_col = st.columns([1, 2])
-
-    # chart data
-    state_df = (
-        filtered_df.groupby(["State", "Region"], as_index=False)
-        .agg(Sales=("Sales", "sum"), Profit=("Profit", "sum"))
-        .sort_values("Sales", ascending=False)
-        .head(15)
-    )
-
-    with geo_col:
-        st.write("Location Performance")
-        fig_state = px.bar(
-            state_df.sort_values("Profit"), x="Profit",y="State",
-            orientation= "h", color="Region",
-            title="Top states by sales, ranked by profit",
-            hover_data={"Sales": ":,.2f"},
-    )
-
-    fig_state.add_vline(x=0, line_dash="dash")
-    fig_state.update_layout(height=480,
-                    margin=dict(l=10, r=10, t=50, b=10))
-    st.plotly_chart(fig_state, use_container_width=True)
-
-    # shiping data
-    ship_df = (
-        filtered_df.groupby("Ship_Mode", as_index=False)
-        .agg(
-            Average_Shipping_Days=("Shipping_Days","mean"),
-            Sales=("Sales", "sum"),
-            Profit=("Profit", "sum"),
-            Orders=("Order_ID", "nunique")
-        )
-    )
-
-    # chart 
-    with ship_col:
-        st.write("Operational Performance")
-        ship_chart= (
-            alt.Chart(ship_df).mark_bar()
-            .encode(
-                x=alt.X("Average_Shipping_Days:Q",
-                    title="Average Shipping Days"),
-                y=alt.Y("Ship_Mode:N",sort="-x",title=None,
-                )
-            )
-            .properties(title="Delivery speed by ship mode",height=380)
-        )
-    st.altair_chart(ship_chart,use_container_width=True)
-except Exception as e:
-    st.exception(e)
+st.divider()
+st.subheader("Raw Data")
+st.dataframe(filtered_df)
